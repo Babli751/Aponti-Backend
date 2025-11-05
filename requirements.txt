@@ -1,0 +1,12 @@
+fastapi==0.118.0
+uvicorn==0.22.0
+python-jose[cryptography]==3.3.0
+passlib==1.7.4
+python-multipart==0.0.6
+sqlalchemy==1.4.46
+pydantic[email]==2.11.9
+pydantic-settings==2.10.1
+python-dotenv==1.0.0
+# psycopg2-binary==2.9.6  # Commented out for SQLite compatibility
+alembic==1.11.1
+cloudinary
