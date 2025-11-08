@@ -49,7 +49,7 @@ app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(user.router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(barber.router, prefix="/api/v1/barbers", tags=["Barbers"])
 app.include_router(booking.router, prefix="/api/v1/bookings", tags=["Bookings"])
-app.include_router(business.router, prefix="/api/v1/business", tags=["Business"])
+app.include_router(business.router, prefix="/api/v1/businesses", tags=["Business"])
 if services_router:
     print(f"Including services router: {services_router}")
     app.include_router(services_router, prefix="/api/v1", tags=["Services"])
