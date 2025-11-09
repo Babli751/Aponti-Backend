@@ -398,6 +398,92 @@ def get_businesses_list(db: Session = Depends(get_db)):
 
 
 # ------------------------------
+# Get Nearby Businesses (GPS-based) - MOVED BEFORE /{business_id}
+# ------------------------------
+@router.get("/nearby")
+def get_nearby_businesses(
+    lat: float = Query(..., description="User's latitude"),
+    lon: float = Query(..., description="User's longitude"),
+    radius: float = Query(10, description="Search radius in kilometers"),
+    category: Optional[str] = Query(None, description="Filter by category"),
+    db: Session = Depends(get_db)
+):
+    """Get businesses near user's location"""
+    # Get all businesses with GPS coordinates
+    businesses = db.query(models.Business).filter(
+        models.Business.latitude.isnot(None),
+        models.Business.longitude.isnot(None)
+    ).all()
+
+    # Filter by category if provided
+    if category:
+        businesses = [b for b in businesses if b.category == category]
+
+    # Calculate distances and filter by radius
+    nearby_businesses = []
+    for business in businesses:
+        distance = calculate_distance(lat, lon, business.latitude, business.longitude)
+
+        if distance <= radius:
+            # Get services count
+            services_count = db.query(Service).filter(Service.business_id == business.id).count()
+
+            nearby_businesses.append({
+                "id": business.id,
+                "name": business.name,
+                "owner_name": business.owner_name,
+                "address": business.address,
+                "city": business.city,
+                "category": business.category,
+                "description": business.description,
+                "phone": business.phone,
+                "avatar_url": business.avatar_url,
+                "cover_photo_url": business.cover_photo_url,
+                "latitude": business.latitude,
+                "longitude": business.longitude,
+                "distance": round(distance, 2),  # Distance in km
+                "services_count": services_count
+            })
+
+    # Sort by distance (closest first)
+    nearby_businesses.sort(key=lambda x: x["distance"])
+
+    return {
+        "total": len(nearby_businesses),
+        "user_location": {"lat": lat, "lon": lon},
+        "radius_km": radius,
+        "businesses": nearby_businesses
+    }
+
+
+# ------------------------------
+# Geocode Address Endpoint - MOVED BEFORE /{business_id}
+# ------------------------------
+class GeocodeRequest(BaseModel):
+    address: str
+    city: str
+    country: str
+
+@router.post("/geocode")
+def geocode_address_endpoint(request: GeocodeRequest):
+    """Convert address to GPS coordinates"""
+    latitude, longitude = geocode_address(request.address, request.city, request.country)
+
+    if latitude and longitude:
+        return {
+            "success": True,
+            "latitude": latitude,
+            "longitude": longitude,
+            "address": f"{request.address}, {request.city}, {request.country}"
+        }
+    else:
+        return {
+            "success": False,
+            "message": "Could not geocode address"
+        }
+
+
+# ------------------------------
 # Get Business Details by ID
 # ------------------------------
 @router.get("/{business_id}")
@@ -414,7 +500,6 @@ def get_business_by_id(business_id: int, db: Session = Depends(get_db)):
         "phone": business.phone,
         "address": business.address,
         "city": business.city,
-        "country": business.country,
         "description": business.description,
         "avatar": None,
         "cover_photo": None,
@@ -506,87 +591,3 @@ def get_worker_services(worker_id: int, db: Session = Depends(get_db)):
         "description": s.description,
         "worker_id": worker_id
     } for s in all_services.values()]
-
-
-# ------------------------------
-# Get Nearby Businesses (GPS-based)
-# ------------------------------
-@router.get("/nearby")
-def get_nearby_businesses(
-    lat: float = Query(..., description="User's latitude"),
-    lon: float = Query(..., description="User's longitude"),
-    radius: float = Query(10, description="Search radius in kilometers"),
-    category: Optional[str] = Query(None, description="Filter by category"),
-    db: Session = Depends(get_db)
-):
-    """Get businesses near user's location"""
-    # Get all businesses with GPS coordinates
-    businesses = db.query(models.Business).filter(
-        models.Business.latitude.isnot(None),
-        models.Business.longitude.isnot(None)
-    ).all()
-
-    # Filter by category if provided
-    if category:
-        businesses = [b for b in businesses if b.category == category]
-
-    # Calculate distances and filter by radius
-    nearby_businesses = []
-    for business in businesses:
-        distance = calculate_distance(lat, lon, business.latitude, business.longitude)
-
-        if distance <= radius:
-            # Get services count
-            services_count = db.query(Service).filter(Service.business_id == business.id).count()
-
-            nearby_businesses.append({
-                "id": business.id,
-                "name": business.name,
-                "owner_name": business.owner_name,
-                "address": business.address,
-                "city": business.city,
-                "country": business.country,
-                "category": business.category,
-                "description": business.description,
-                "phone": business.phone,
-                "avatar_url": business.avatar_url,
-                "cover_photo_url": business.cover_photo_url,
-                "latitude": business.latitude,
-                "longitude": business.longitude,
-                "distance": round(distance, 2),  # Distance in km
-                "services_count": services_count
-            })
-
-    # Sort by distance (closest first)
-    nearby_businesses.sort(key=lambda x: x["distance"])
-
-    return {
-        "total": len(nearby_businesses),
-        "user_location": {"lat": lat, "lon": lon},
-        "radius_km": radius,
-        "businesses": nearby_businesses
-    }
-
-
-# ------------------------------
-# Geocode Address Endpoint (for manual address lookup)
-# ------------------------------
-class GeocodeRequest(BaseModel):
-    address: str
-    city: str
-    country: str
-
-@router.post("/geocode")
-def geocode_address_endpoint(request: GeocodeRequest):
-    """Convert address to GPS coordinates"""
-    latitude, longitude = geocode_address(request.address, request.city, request.country)
-
-    if latitude and longitude:
-        return {
-            "success": True,
-            "latitude": latitude,
-            "longitude": longitude,
-            "address": f"{request.address}, {request.city}, {request.country}"
-        }
-    else:
-        raise HTTPException(status_code=404, detail="Could not geocode address")
