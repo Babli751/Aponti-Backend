@@ -5,7 +5,7 @@ from datetime import timedelta
 from pydantic import BaseModel
 from app.core.database import get_db
 from app.models import models
-from app.models.models import Business, Service, Booking as BookingModel
+from app.models.models import Business, Service, Booking as BookingModel, User, BusinessWorker
 from app.models.schemas import BusinessCreateSchema
 from typing import List, Optional
 from app.core.security import verify_password, create_access_token, get_current_business
@@ -194,6 +194,21 @@ def get_business_profile(current_business: Business = Depends(get_current_busine
     rating = 4.5  # Default rating for now
     review_count = len(completed_bookings)
 
+    # Get workers for this business
+    workers = [
+        {
+            "id": bw.worker.id,
+            "email": bw.worker.email,
+            "first_name": bw.worker.first_name,
+            "last_name": bw.worker.last_name,
+            "full_name": f"{bw.worker.first_name or ''} {bw.worker.last_name or ''}".strip() or bw.worker.email,
+            "phone_number": bw.worker.phone_number,
+            "is_barber": bw.worker.is_barber
+        }
+        for bw in current_business.business_workers
+        if bw.worker
+    ]
+
     return {
         "id": current_business.id,
         "name": current_business.name,
@@ -209,6 +224,7 @@ def get_business_profile(current_business: Business = Depends(get_current_busine
         "reviewCount": review_count,
         "totalBookings": total_bookings,
         "monthlyRevenue": monthly_revenue,
+        "workers": workers,
         "services": [
             {
                 "id": s.id,
@@ -534,6 +550,99 @@ def get_business_workers(business_id: int, db: Session = Depends(get_db)):
         "bio": w.barber_bio,
         "business_id": business_id
     } for w in workers]
+
+
+# ------------------------------
+# Add Worker to Business
+# ------------------------------
+class AddWorkerSchema(BaseModel):
+    first_name: str
+    last_name: str
+    email: str
+    phone_number: str = ""
+    password: str
+    is_barber: bool = True
+
+@router.post("/workers/add")
+def add_worker_to_business(
+    worker_data: AddWorkerSchema,
+    current_business: Business = Depends(get_current_business),
+    db: Session = Depends(get_db)
+):
+    """
+    Add a new worker (barber) to the current business.
+    This creates a new user and links them to the business.
+    """
+    # Check if user with this email already exists
+    existing_user = db.query(User).filter(User.email == worker_data.email).first()
+
+    if existing_user:
+        # If user exists, just link them to this business
+        # Check if they're already linked
+        existing_link = db.query(BusinessWorker).filter(
+            BusinessWorker.business_id == current_business.id,
+            BusinessWorker.worker_id == existing_user.id
+        ).first()
+
+        if existing_link:
+            raise HTTPException(status_code=400, detail="Worker already added to this business")
+
+        # Create link
+        business_worker = BusinessWorker(
+            business_id=current_business.id,
+            worker_id=existing_user.id
+        )
+        db.add(business_worker)
+        db.commit()
+        db.refresh(business_worker)
+
+        return {
+            "message": "Existing worker added to business successfully",
+            "worker": {
+                "id": existing_user.id,
+                "email": existing_user.email,
+                "first_name": existing_user.first_name,
+                "last_name": existing_user.last_name,
+                "full_name": f"{existing_user.first_name or ''} {existing_user.last_name or ''}".strip() or existing_user.email
+            }
+        }
+
+    # Create new user
+    hashed_password = get_password_hash(worker_data.password)
+    new_user = User(
+        email=worker_data.email,
+        hashed_password=hashed_password,
+        first_name=worker_data.first_name,
+        last_name=worker_data.last_name,
+        phone_number=worker_data.phone_number,
+        is_barber=worker_data.is_barber,
+        is_active=True
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    # Link new user to business
+    business_worker = BusinessWorker(
+        business_id=current_business.id,
+        worker_id=new_user.id
+    )
+    db.add(business_worker)
+    db.commit()
+    db.refresh(business_worker)
+
+    return {
+        "message": "Worker added successfully",
+        "worker": {
+            "id": new_user.id,
+            "email": new_user.email,
+            "first_name": new_user.first_name,
+            "last_name": new_user.last_name,
+            "full_name": f"{new_user.first_name or ''} {new_user.last_name or ''}".strip() or new_user.email,
+            "phone_number": new_user.phone_number,
+            "is_barber": new_user.is_barber
+        }
+    }
 
 
 # ------------------------------
