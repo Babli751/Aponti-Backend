@@ -366,14 +366,13 @@ def read_businesses(db: Session = Depends(get_db)):
         "phone": b.phone,
         "address": b.address,
         "city": b.city,
-        "country": b.country,
         "business_type": b.category or "barber",
         "category": b.category or "barber",
         "description": b.description or "Professional services",
         "latitude": 41.0082 + (b.id * 0.01),  # Temp: generate coords based on ID
         "longitude": 28.9784 + (b.id * 0.01),
-        "avatar_url": None,
-        "cover_photo_url": None,
+        "avatar_url": getattr(b, 'avatar', None),
+        "cover_photo_url": getattr(b, 'cover_photo', None),
         "workers_count": 5,
         "services_count": 8
     } for b in businesses]
