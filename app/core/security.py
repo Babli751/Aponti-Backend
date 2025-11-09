@@ -16,7 +16,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # User login üçün token URL
 oauth2_scheme_user = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 # Business login üçün token URL
-oauth2_scheme_business = OAuth2PasswordBearer(tokenUrl="/api/v1/business/login")
+oauth2_scheme_business = OAuth2PasswordBearer(tokenUrl="/api/v1/businesses/login")
 
 # ----------------- Password Hashing -----------------
 def get_password_hash(password: str) -> str:
@@ -92,18 +92,24 @@ async def get_current_business(
 ) -> Business:
     """Aktiv businessi al"""
     try:
+        print(f"🔍 get_current_business: token received = {token[:50]}...")
         email = verify_token(token)
+        print(f"✅ Token verified, email = {email}")
         business = db.query(Business).filter(Business.email == email).first()
         if not business:
+            print(f"❌ Business not found for email: {email}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Business not found"
             )
+        print(f"✅ Business found: {business.name}")
         return business
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Business token verification error: {e}")
+        print(f"❌ Business token verification error: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",

@@ -202,7 +202,6 @@ def get_business_profile(current_business: Business = Depends(get_current_busine
         "phone": current_business.phone,
         "address": current_business.address,
         "city": current_business.city,
-        "country": current_business.country,
         "category": current_business.category,
         "description": current_business.description,
         "avatar": "",  # Default avatar for now
