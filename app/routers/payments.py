@@ -167,7 +167,8 @@ async def create_payment_session(
     order_ref = f"APONTI-{booking.id}-{secrets.token_hex(4).upper()}"
     
     # For 2Checkout, we redirect to their hosted payment page
-    base_url = "https://sandbox.2checkout.com" if TWOCHECKOUT_CONFIG["sandbox"] else "https://secure.2checkout.com"
+    # 2Checkout Hosted Checkout URL (same for sandbox and production)
+    base_url = "https://www.2checkout.com"
     
     # Build return URLs
     success_url = f"http://206.189.57.55/payment/success?booking_id={booking.id}&order_ref={order_ref}"
