@@ -149,7 +149,15 @@ def login_business(login_data: BusinessLoginSchema, db: Session = Depends(get_db
     print("Login attempt:", login_data.email, login_data.password)
     print("DB hashed:", business.hashed_password)
 
-    verify_result = verify_password(login_data.password, business.hashed_password)
+    # Check if password is hashed or plain text
+    verify_result = False
+    if business.hashed_password.startswith('$2b$') or business.hashed_password.startswith('$2a$'):
+        # Password is hashed, verify using bcrypt
+        verify_result = verify_password(login_data.password, business.hashed_password)
+    else:
+        # Password is plain text (for test accounts), compare directly
+        verify_result = (login_data.password == business.hashed_password)
+
     print("Verify result:", verify_result)
 
     if not verify_result:
@@ -380,10 +388,17 @@ def read_businesses(db: Session = Depends(get_db)):
             BusinessWorker.business_id == b.id
         ).count()
 
-        # Count real services for this business
+        # Count real services for this business (via workers)
+        # Get all worker IDs for this business
+        worker_ids = db.query(BusinessWorker.worker_id).filter(
+            BusinessWorker.business_id == b.id
+        ).all()
+        worker_ids = [w[0] for w in worker_ids]
+
+        # Count services from these workers
         services_count = db.query(Service).filter(
-            Service.business_id == b.id
-        ).count()
+            Service.barber_id.in_(worker_ids)
+        ).count() if worker_ids else 0
 
         result.append({
             "id": b.id,
@@ -550,18 +565,30 @@ def get_business_workers(business_id: int, db: Session = Depends(get_db)):
     if not business:
         raise HTTPException(status_code=404, detail="Business not found")
 
-    # Get all barbers (users where is_barber=True)
-    # For now, we'll return all barbers as workers for this business
-    # TODO: Add a relationship between Business and Workers in the future
-    workers = db.query(models.User).filter(models.User.is_barber == True).all()
+    # Get workers for this specific business from business_workers table
+    worker_ids = db.query(BusinessWorker.worker_id).filter(
+        BusinessWorker.business_id == business_id
+    ).all()
+    worker_ids = [w[0] for w in worker_ids]
+
+    if not worker_ids:
+        return []
+
+    # Get worker details
+    workers = db.query(models.User).filter(
+        models.User.id.in_(worker_ids),
+        models.User.is_barber == True
+    ).all()
 
     return [{
         "id": w.id,
-        "name": f"{w.first_name} {w.last_name}".strip() or w.email.split('@')[0],
+        "full_name": f"{w.first_name or ''} {w.last_name or ''}".strip() or w.email.split('@')[0],
+        "first_name": w.first_name,
+        "last_name": w.last_name,
         "email": w.email,
         "phone": w.phone_number,
-        "avatar": w.avatar_url,
-        "rating": w.rating,
+        "avatar_url": w.avatar_url,
+        "rating": w.rating or 0.0,
         "bio": w.barber_bio,
         "business_id": business_id
     } for w in workers]
@@ -715,3 +742,81 @@ def get_worker_services(worker_id: int, db: Session = Depends(get_db)):
         "description": s.description,
         "worker_id": worker_id
     } for s in all_services.values()]
+
+
+# ------------------------------
+# Business Photo Upload Endpoints
+# ------------------------------
+from fastapi import UploadFile, File
+import os
+import shutil
+from datetime import datetime
+
+@router.post("/avatar")
+async def upload_business_avatar(
+    file: UploadFile = File(...),
+    current_business: Business = Depends(get_current_business),
+    db: Session = Depends(get_db)
+):
+    """Upload business avatar/profile photo"""
+    try:
+        # Create uploads directory if it doesn't exist
+        upload_dir = "uploads/business_avatars"
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        # Generate unique filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        file_extension = file.filename.split(".")[-1]
+        filename = f"business_{current_business.id}_{timestamp}.{file_extension}"
+        file_path = os.path.join(upload_dir, filename)
+        
+        # Save file
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        # Update business avatar_url in database
+        avatar_url = f"/uploads/business_avatars/{filename}"
+        current_business.avatar_url = avatar_url
+        db.commit()
+        
+        return {
+            "message": "Avatar uploaded successfully",
+            "avatar_url": avatar_url
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to upload avatar: {str(e)}")
+
+
+@router.post("/cover-photo")
+async def upload_business_cover_photo(
+    file: UploadFile = File(...),
+    current_business: Business = Depends(get_current_business),
+    db: Session = Depends(get_db)
+):
+    """Upload business cover photo"""
+    try:
+        # Create uploads directory if it doesn't exist
+        upload_dir = "uploads/business_covers"
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        # Generate unique filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        file_extension = file.filename.split(".")[-1]
+        filename = f"business_{current_business.id}_{timestamp}.{file_extension}"
+        file_path = os.path.join(upload_dir, filename)
+        
+        # Save file
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        # Update business cover_photo_url in database
+        cover_url = f"/uploads/business_covers/{filename}"
+        current_business.cover_photo_url = cover_url
+        db.commit()
+        
+        return {
+            "message": "Cover photo uploaded successfully",
+            "cover_photo_url": cover_url
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to upload cover photo: {str(e)}")

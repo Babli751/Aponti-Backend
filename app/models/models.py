@@ -90,11 +90,13 @@ class FavoriteBarber(Base):
     __tablename__ = "favorite_barbers"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    barber_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    barber_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # Made nullable for service-only favorites
+    service_id = Column(Integer, ForeignKey("services.id"), nullable=True)  # Added for service favorites
     created_at = Column(DateTime, server_default=func.now())
 
     user = relationship("User", foreign_keys=[user_id], back_populates="favorite_barbers")
     barber = relationship("User", foreign_keys=[barber_id], back_populates="favorited_by")
+    service = relationship("Service")  # Added service relationship
 
 class BusinessWorker(Base):
     """Many-to-Many relationship between Business and Workers (Users)"""
@@ -153,3 +155,20 @@ class BarberService(Base):
 
     barber = relationship("User", back_populates="barber_services")
     service = relationship("Service", back_populates="barber_services")
+
+
+class Payment(Base):
+    __tablename__ = "payments"
+    id = Column(Integer, primary_key=True, index=True)
+    booking_id = Column(Integer, ForeignKey("bookings.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    amount = Column(Float, nullable=False)
+    currency = Column(String, default="USD")
+    status = Column(String, default="pending")  # pending, completed, failed, refunded
+    payment_method = Column(String, default="2checkout")  # 2checkout, stripe, etc
+    transaction_id = Column(String, nullable=True)  # 2Checkout order/sale ID
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+
+    booking = relationship("Booking")
+    user = relationship("User")

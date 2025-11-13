@@ -21,23 +21,9 @@ router = APIRouter(tags=["Bookings"])
 @router.post("/", response_model=BookingSchema, status_code=status.HTTP_201_CREATED)
 async def create_new_booking(
     booking: BookingCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
 ):
-    # For demo purposes, use a default user
-    demo_user = db.query(User).filter(User.email == "demo@booksy.com").first()
-    if not demo_user:
-        demo_user = User(
-            email="demo@booksy.com",
-            first_name="Demo",
-            last_name="User",
-            is_active=True,
-            hashed_password="demo"  # Not used for demo
-        )
-        db.add(demo_user)
-        db.commit()
-        db.refresh(demo_user)
-
-    current_user = demo_user
     # ✅ Barber kontrolü
     barber = db.query(User).filter(User.id == booking.barber_id, User.is_barber == True).first()
     if not barber:
@@ -62,12 +48,17 @@ async def create_new_booking(
 
     # Booking verilerini oluştur
     booking_data = booking.dict()
+    # Build customer name from first_name and last_name
+    customer_name = "Anonymous"
+    if current_user.first_name or current_user.last_name:
+        customer_name = f"{current_user.first_name or ''} {current_user.last_name or ''}".strip()
+
     booking_data.update({
         "user_id": current_user.id,
         "barber_id": booking.barber_id,
         "service_id": booking.service_id,
         "customer_email": current_user.email,
-        "customer_name": current_user.full_name or "Anonymous",
+        "customer_name": customer_name,
         "customer_phone": current_user.phone_number or booking.customer_phone,
     })
 

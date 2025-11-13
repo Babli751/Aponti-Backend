@@ -2,7 +2,7 @@ from sqlalchemy import func
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 from app.core.database import get_db
-from app.models.models import User as UserModel, Booking, FavoriteBarber
+from app.models.models import User as UserModel, Booking, FavoriteBarber, Service
 from app.models.schemas import UserSchema, UserUpdate, UserStats, NotificationSettings, BookingSchema, UserCreate
 from app.core import security
 from typing import List
@@ -79,33 +79,91 @@ def get_user_stats(
         favorite_barbers=favorite_barbers
     )
 
-@router.get("/favorites", response_model=List[UserSchema])
-def get_favorite_barbers(
+@router.get("/favorites")
+def get_favorite_services(
     current_user: UserModel = Depends(security.get_current_user),
     db: Session = Depends(get_db)
 ):
+    """Get favorite services for the current user"""
     favorites = db.query(FavoriteBarber).filter(FavoriteBarber.user_id == current_user.id).all()
-    barbers = [db.query(UserModel).filter(UserModel.id == fav.barber_id).first() for fav in favorites]
-    return [
-        UserSchema(
-            id=barber.id,
-            email=barber.email,
-            first_name=barber.first_name,
-            last_name=barber.last_name,
-            phone_number=barber.phone_number,
-            birth_date=barber.birth_date,
-            address=barber.address,
-            loyalty_points=barber.loyalty_points,
-            membership_tier=barber.membership_tier,
-            rating=barber.rating,
-            notification_settings=barber.notification_settings,
-            avatar_url=barber.avatar_url,
-            is_barber=barber.is_barber,
-            is_active=barber.is_active,
-            created_at=barber.created_at
-        )
-        for barber in barbers if barber
-    ]
+
+    result = []
+    for fav in favorites:
+        if fav.service_id:
+            # Service-based favorite
+            service = db.query(Service).filter(Service.id == fav.service_id).first()
+            if service:
+                barber = db.query(UserModel).filter(UserModel.id == service.barber_id).first()
+                result.append({
+                    "id": service.id,
+                    "name": service.name,
+                    "category": service.name,  # Show service name
+                    "price": service.price,
+                    "duration": service.duration,
+                    "barber_id": service.barber_id,
+                    "barber_name": f"{barber.first_name or ''} {barber.last_name or ''}".strip() if barber else "Unknown",
+                    "image": barber.avatar_url if barber else None
+                })
+        elif fav.barber_id:
+            # Legacy barber-based favorite
+            barber = db.query(UserModel).filter(UserModel.id == fav.barber_id).first()
+            if barber:
+                result.append({
+                    "id": barber.id,
+                    "name": f"{barber.first_name or ''} {barber.last_name or ''}".strip() or "Barber",
+                    "category": f"{barber.first_name or ''} {barber.last_name or ''}".strip() or "Barber",
+                    "barber_id": barber.id,
+                    "image": barber.avatar_url
+                })
+
+    return result
+
+@router.post("/favorites/services/{service_id}")
+def add_favorite_service(
+    service_id: int,
+    current_user: UserModel = Depends(security.get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Check if service exists
+    service = db.query(Service).filter(Service.id == service_id).first()
+    if not service:
+        raise HTTPException(status_code=404, detail="Service not found")
+
+    # Check if already favorited
+    existing = db.query(FavoriteBarber).filter(
+        FavoriteBarber.user_id == current_user.id,
+        FavoriteBarber.service_id == service_id
+    ).first()
+
+    if existing:
+        return {"message": "Already in favorites", "favorite_id": existing.id}
+
+    # Add to favorites with service_id
+    favorite = FavoriteBarber(user_id=current_user.id, service_id=service_id, barber_id=service.barber_id)
+    db.add(favorite)
+    db.commit()
+    db.refresh(favorite)
+
+    return {"message": "Added to favorites", "favorite_id": favorite.id}
+
+@router.delete("/favorites/services/{service_id}")
+def remove_favorite_service(
+    service_id: int,
+    current_user: UserModel = Depends(security.get_current_user),
+    db: Session = Depends(get_db)
+):
+    favorite = db.query(FavoriteBarber).filter(
+        FavoriteBarber.user_id == current_user.id,
+        FavoriteBarber.service_id == service_id
+    ).first()
+
+    if not favorite:
+        raise HTTPException(status_code=404, detail="Favorite not found")
+
+    db.delete(favorite)
+    db.commit()
+
+    return {"message": "Removed from favorites"}
 
 @router.put("/me", response_model=UserSchema)
 def update_current_user_route(

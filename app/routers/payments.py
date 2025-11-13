@@ -16,47 +16,7 @@ router = APIRouter(tags=["payments"])
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "sk_test_your_key_here")
 STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY", "pk_test_your_key_here")
 
-
-# Payment Model
-class Payment(models.Base):
-    __tablename__ = "payments"
-    id = Column(Integer, primary_key=True, index=True)
-    booking_id = Column(Integer, ForeignKey("bookings.id"), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    business_id = Column(Integer, ForeignKey("businesses.id"), nullable=False)
-    amount = Column(Float, nullable=False)
-    currency = Column(String, default="USD")
-    payment_method = Column(String, nullable=False)  # card, cash, online, deposit
-    status = Column(String, default="pending")  # pending, completed, failed, refunded, partially_refunded
-    stripe_payment_id = Column(String, nullable=True)
-    stripe_refund_id = Column(String, nullable=True)
-    refund_amount = Column(Float, nullable=True)
-    refund_reason = Column(Text, nullable=True)
-    invoice_number = Column(String, nullable=True, unique=True)
-    notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, onupdate=func.now())
-
-
-# Invoice Model
-class Invoice(models.Base):
-    __tablename__ = "invoices"
-    id = Column(Integer, primary_key=True, index=True)
-    invoice_number = Column(String, unique=True, nullable=False, index=True)
-    payment_id = Column(Integer, ForeignKey("payments.id"), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    business_id = Column(Integer, ForeignKey("businesses.id"), nullable=False)
-    amount = Column(Float, nullable=False)
-    tax_amount = Column(Float, default=0.0)
-    total_amount = Column(Float, nullable=False)
-    currency = Column(String, default="USD")
-    status = Column(String, default="issued")  # issued, paid, cancelled
-    due_date = Column(DateTime, nullable=True)
-    paid_at = Column(DateTime, nullable=True)
-    invoice_pdf_url = Column(String, nullable=True)
-    notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, server_default=func.now())
-
+# Note: Payment and Invoice models are now in app/models/models.py to avoid duplication
 
 # Schemas
 class PaymentCreate(BaseModel):
@@ -178,8 +138,8 @@ def create_payment(
         raise HTTPException(status_code=404, detail="Booking not found")
 
     # Check if payment already exists
-    existing_payment = db.query(Payment).filter(
-        Payment.booking_id == payment_data.booking_id
+    existing_payment = db.query(models.Payment).filter(
+        models.Payment.booking_id == payment_data.booking_id
     ).first()
 
     if existing_payment:
@@ -216,7 +176,7 @@ def create_payment(
     invoice_number = generate_invoice_number()
 
     # Create payment record
-    payment = Payment(
+    payment = models.Payment(
         booking_id=payment_data.booking_id,
         user_id=current_user.id,
         business_id=service.business_id,
@@ -259,7 +219,7 @@ def get_payment_history(
     db: Session = Depends(get_db)
 ):
     """Get user's payment history"""
-    payments = db.query(Payment).filter(Payment.user_id == current_user.id).all()
+    payments = db.query(models.Payment).filter(models.Payment.user_id == current_user.id).all()
 
     return [
         {
@@ -287,9 +247,9 @@ def process_refund(
     """Process a refund for a payment"""
 
     # Get payment
-    payment = db.query(Payment).filter(
-        Payment.id == refund_data.payment_id,
-        Payment.business_id == current_business.id
+    payment = db.query(models.Payment).filter(
+        models.Payment.id == refund_data.payment_id,
+        models.Payment.business_id == current_business.id
     ).first()
 
     if not payment:
@@ -351,16 +311,16 @@ def create_invoice(
     """Create an invoice for a payment"""
 
     # Get payment
-    payment = db.query(Payment).filter(
-        Payment.id == invoice_data.payment_id,
-        Payment.business_id == current_business.id
+    payment = db.query(models.Payment).filter(
+        models.Payment.id == invoice_data.payment_id,
+        models.Payment.business_id == current_business.id
     ).first()
 
     if not payment:
         raise HTTPException(status_code=404, detail="Payment not found")
 
     # Check if invoice already exists
-    existing_invoice = db.query(Invoice).filter(Invoice.payment_id == payment.id).first()
+    existing_invoice = db.query(models.Invoice).filter(models.Invoice.payment_id == payment.id).first()
     if existing_invoice:
         raise HTTPException(status_code=400, detail="Invoice already exists for this payment")
 
@@ -375,7 +335,7 @@ def create_invoice(
     due_date = datetime.now() + timedelta(days=invoice_data.due_days)
 
     # Create invoice
-    invoice = Invoice(
+    invoice = models.Invoice(
         invoice_number=invoice_number,
         payment_id=payment.id,
         user_id=payment.user_id,
@@ -416,7 +376,7 @@ def get_invoices(
     db: Session = Depends(get_db)
 ):
     """Get user's invoices"""
-    invoices = db.query(Invoice).filter(Invoice.user_id == current_user.id).all()
+    invoices = db.query(models.Invoice).filter(models.Invoice.user_id == current_user.id).all()
 
     return [
         InvoiceResponse(
@@ -444,9 +404,9 @@ def get_business_revenue(
     db: Session = Depends(get_db)
 ):
     """Get business revenue stats"""
-    payments = db.query(Payment).filter(
-        Payment.business_id == current_business.id,
-        Payment.status.in_(["completed", "partially_refunded"])
+    payments = db.query(models.Payment).filter(
+        models.Payment.business_id == current_business.id,
+        models.Payment.status.in_(["completed", "partially_refunded"])
     ).all()
 
     total_revenue = sum(p.amount for p in payments)
