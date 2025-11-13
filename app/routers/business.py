@@ -227,7 +227,8 @@ def get_business_profile(current_business: Business = Depends(get_current_busine
         "city": current_business.city,
         "category": current_business.category,
         "description": current_business.description,
-        "avatar": "",  # Default avatar for now
+        "avatar": current_business.avatar_url or "",
+        "coverPhoto": current_business.cover_photo_url or "",
         "rating": rating,
         "reviewCount": review_count,
         "totalBookings": total_bookings,
