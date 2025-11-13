@@ -432,6 +432,27 @@ def get_business_revenue(
 # ------------------------------
 # Get Stripe Publishable Key (for frontend)
 # ------------------------------
+
+# Add this endpoint before the @router.get("/config/stripe") endpoint
+
+# ------------------------------
+# Get Payment Configuration (for 2Checkout)
+# ------------------------------
+@router.get("/config")
+def get_payment_config():
+    """Get payment configuration for frontend"""
+    # 2Checkout configuration
+    merchant_code = os.getenv("TWOCHECKOUT_MERCHANT_CODE", "253177870927")
+    publishable_key = os.getenv("TWOCHECKOUT_PUBLISHABLE_KEY", "67134D0A-9FA7-454E-989E-D2D1F0EFF8DB")
+    sandbox = os.getenv("TWOCHECKOUT_SANDBOX", "true").lower() == "true"
+    
+    return {
+        "merchant_code": merchant_code,
+        "publishable_key": publishable_key,
+        "sandbox": sandbox,
+        "provider": "2checkout"
+    }
+
 @router.get("/config/stripe")
 def get_stripe_config():
     """Get Stripe publishable key for frontend"""
