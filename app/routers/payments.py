@@ -16,6 +16,15 @@ router = APIRouter(tags=["payments"])
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "sk_test_your_key_here")
 STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY", "pk_test_your_key_here")
 
+# 2Checkout Configuration
+TWOCHECKOUT_CONFIG = {
+    "merchant_code": os.getenv("TWOCHECKOUT_MERCHANT_CODE", "253177870927"),
+    "secret_key": os.getenv("TWOCHECKOUT_SECRET_KEY", "your_secret_key_here"),
+    "publishable_key": os.getenv("TWOCHECKOUT_PUBLISHABLE_KEY", "67134D0A-9FA7-454E-989E-D2D1F0EFF8DB"),
+    "sandbox": os.getenv("TWOCHECKOUT_SANDBOX", "true").lower() == "true"
+}
+
+
 # Note: Payment and Invoice models are now in app/models/models.py to avoid duplication
 
 # Schemas
@@ -64,6 +73,12 @@ class InvoiceResponse(BaseModel):
     due_date: Optional[datetime]
     created_at: datetime
 
+
+
+class PaymentSessionCreate(BaseModel):
+    booking_id: int
+    amount: float
+    currency: str = "USD"
 
 # Helper Functions
 def generate_invoice_number() -> str:
@@ -119,6 +134,73 @@ def simulate_stripe_refund(payment_id: str, amount: float) -> dict:
 # ------------------------------
 # Create Payment
 # ------------------------------
+# ------------------------------
+# Create Payment Session (2Checkout)
+# ------------------------------
+@router.post("/create-session")
+async def create_payment_session(
+    session_data: PaymentSessionCreate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a 2Checkout payment session"""
+    
+    # Verify booking exists and belongs to user
+    booking = db.query(models.Booking).filter(
+        models.Booking.id == session_data.booking_id,
+        models.Booking.user_id == current_user.id
+    ).first()
+    
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    
+    # Get service and business info
+    service = booking.service
+    if not service:
+        raise HTTPException(status_code=400, detail="Booking has no associated service")
+    
+    business = service.business
+    if not business:
+        raise HTTPException(status_code=400, detail="Service has no associated business")
+    
+    # Generate unique order reference
+    order_ref = f"APONTI-{booking.id}-{secrets.token_hex(4).upper()}"
+    
+    # For 2Checkout, we redirect to their hosted payment page
+    base_url = "https://sandbox.2checkout.com" if TWOCHECKOUT_CONFIG["sandbox"] else "https://secure.2checkout.com"
+    
+    # Build return URLs
+    success_url = f"http://206.189.57.55/payment/success?booking_id={booking.id}&order_ref={order_ref}"
+    cancel_url = f"http://206.189.57.55/payment?booking_id={booking.id}"
+    
+    # 2Checkout payment parameters
+    payment_params = {
+        "sid": TWOCHECKOUT_CONFIG["merchant_code"],
+        "mode": "2CO",
+        "li_0_type": "product",
+        "li_0_name": f"{service.name} - {business.name}",
+        "li_0_price": str(session_data.amount),
+        "li_0_quantity": "1",
+        "currency_code": session_data.currency,
+        "merchant_order_id": order_ref,
+        "return_url": success_url,
+        "cancel_url": cancel_url,
+        "x_receipt_link_url": success_url
+    }
+    
+    # Build redirect URL with parameters
+    from urllib.parse import urlencode
+    redirect_url = f"{base_url}/checkout/purchase?{urlencode(payment_params)}"
+    
+    return {
+        "success": True,
+        "redirect_url": redirect_url,
+        "order_reference": order_ref,
+        "amount": session_data.amount,
+        "currency": session_data.currency
+    }
+
+
 @router.post("/", response_model=PaymentResponse)
 def create_payment(
     payment_data: PaymentCreate,
