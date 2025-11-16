@@ -39,6 +39,8 @@ async def create_new_booking(
 
     # ✅ Tarih kontrolü (aware datetime)
     start_time = booking.start_time
+    print(f"📅 Booking request - Barber: {booking.barber_id}, Service: {booking.service_id}, Start: {start_time}")
+
     if start_time.tzinfo is None:
         from datetime import timezone
         start_time = start_time.replace(tzinfo=timezone.utc)
@@ -67,8 +69,12 @@ async def create_new_booking(
         new_booking: BookingModel = create_booking(db=db, booking_data=booking_data)
         return BookingSchema.from_orm(new_booking)  # SQLAlchemy objesini Pydantic'e çevir
     except ValueError as e:
+        print(f"❌ Booking validation error: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        print(f"❌ Booking creation error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -147,6 +153,43 @@ async def get_barber_appointments(
                 "duration": b.service.duration if b.service else 0
             },
             "start_time": b.start_time.isoformat() if b.start_time else None,
+            "status": b.status
+        }
+        for b in bookings
+    ]
+
+@router.get("/worker/{worker_id}/date/{date}")
+async def get_worker_bookings_by_date(
+    worker_id: int,
+    date: str,
+    db: Session = Depends(get_db)
+):
+    """Get bookings for a specific worker on a specific date"""
+    from datetime import datetime, timedelta
+
+    # Parse the date string (YYYY-MM-DD)
+    try:
+        target_date = datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+
+    # Get start and end of day
+    start_of_day = datetime.combine(target_date, datetime.min.time())
+    end_of_day = datetime.combine(target_date, datetime.max.time())
+
+    # Query bookings for this worker on this date
+    bookings = db.query(BookingModel).filter(
+        BookingModel.barber_id == worker_id,
+        BookingModel.start_time >= start_of_day,
+        BookingModel.start_time <= end_of_day,
+        BookingModel.status != "cancelled"
+    ).all()
+
+    return [
+        {
+            "id": b.id,
+            "start_time": b.start_time.isoformat() if b.start_time else None,
+            "end_time": b.end_time.isoformat() if b.end_time else None,
             "status": b.status
         }
         for b in bookings

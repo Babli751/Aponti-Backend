@@ -187,7 +187,7 @@ class UserSchema(BaseModel):
     phone_number: Optional[str] = None
     birth_date: Optional[date] = None
     address: Optional[str] = None
-    loyalty_points: int
+    loyalty_points: Optional[int] = 0
     membership_tier: Optional[str] = None
     rating: Optional[float] = None
     notification_settings: Optional[dict] = None

@@ -143,62 +143,125 @@ async def create_payment_session(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Create a 2Checkout payment session"""
-    
+    """Create a 2Checkout payment session using API"""
+
     # Verify booking exists and belongs to user
     booking = db.query(models.Booking).filter(
         models.Booking.id == session_data.booking_id,
         models.Booking.user_id == current_user.id
     ).first()
-    
+
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
-    
+
     # Get service and business info
     service = booking.service
     if not service:
         raise HTTPException(status_code=400, detail="Booking has no associated service")
-    
+
     business = service.business
     if not business:
         raise HTTPException(status_code=400, detail="Service has no associated business")
-    
+
     # Generate unique order reference
     order_ref = f"APONTI-{booking.id}-{secrets.token_hex(4).upper()}"
-    
-    # For 2Checkout, we redirect to their hosted payment page
-    # 2Checkout Hosted Checkout URL (same for sandbox and production)
-    base_url = "https://www.2checkout.com"
-    
-    # Build return URLs
-    success_url = f"http://206.189.57.55/payment/success?booking_id={booking.id}&order_ref={order_ref}"
-    cancel_url = f"http://206.189.57.55/payment?booking_id={booking.id}"
-    
-    # 2Checkout payment parameters
-    payment_params = {
-        "sid": TWOCHECKOUT_CONFIG["merchant_code"],
-        "mode": "2CO",
-        "li_0_type": "product",
-        "li_0_name": f"{service.name} - {business.name}",
-        "li_0_price": str(session_data.amount),
-        "li_0_quantity": "1",
-        "currency_code": session_data.currency,
-        "merchant_order_id": order_ref,
-        "return_url": success_url,
-        "cancel_url": cancel_url,
-        "x_receipt_link_url": success_url
-    }
-    
-    # Build redirect URL with parameters
-    from urllib.parse import urlencode
-    redirect_url = f"{base_url}/checkout/purchase?{urlencode(payment_params)}"
-    
+
+    # Build full name from user
+    full_name = None
+    if current_user.first_name or current_user.last_name:
+        full_name = f"{current_user.first_name or ''} {current_user.last_name or ''}".strip()
+
+    # Return inline checkout configuration
     return {
         "success": True,
-        "redirect_url": redirect_url,
+        "use_inline": True,  # Use inline checkout on your page
+        "merchant_code": TWOCHECKOUT_CONFIG["merchant_code"],
+        "publishable_key": TWOCHECKOUT_CONFIG["publishable_key"],
         "order_reference": order_ref,
+        "booking_id": booking.id,
         "amount": session_data.amount,
-        "currency": session_data.currency
+        "currency": session_data.currency,
+        "product_name": f"{service.name} - {business.name}",
+        "customer_email": current_user.email,
+        "customer_name": full_name or current_user.email,
+        "sandbox": TWOCHECKOUT_CONFIG["sandbox"]
+    }
+
+
+class PaymentComplete(BaseModel):
+    booking_id: int
+    order_reference: str
+    order_number: Optional[str] = None
+
+
+@router.post("/complete")
+async def complete_payment(
+    payment_data: PaymentComplete,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Complete payment after 2Checkout redirect"""
+
+    # Verify booking exists and belongs to user
+    booking = db.query(models.Booking).filter(
+        models.Booking.id == payment_data.booking_id,
+        models.Booking.user_id == current_user.id
+    ).first()
+
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+
+    # Check if payment already exists
+    existing_payment = db.query(models.Payment).filter(
+        models.Payment.booking_id == payment_data.booking_id
+    ).first()
+
+    if existing_payment:
+        return {
+            "success": True,
+            "payment_id": existing_payment.id,
+            "status": existing_payment.status,
+            "message": "Payment already recorded"
+        }
+
+    # Get service and business info
+    service = booking.service
+    if not service or not service.business_id:
+        raise HTTPException(status_code=400, detail="Invalid booking service")
+
+    # Generate invoice number
+    invoice_number = generate_invoice_number()
+
+    # Create payment record
+    payment = models.Payment(
+        booking_id=payment_data.booking_id,
+        user_id=current_user.id,
+        business_id=service.business_id,
+        amount=service.price,
+        payment_method="online",
+        status="completed",
+        stripe_payment_id=payment_data.order_number,  # Store 2Checkout order number
+        invoice_number=invoice_number,
+        notes=f"2Checkout Order Ref: {payment_data.order_reference}"
+    )
+
+    db.add(payment)
+    db.commit()
+    db.refresh(payment)
+
+    # Update booking status
+    booking.status = "confirmed"
+    db.commit()
+
+    return {
+        "success": True,
+        "payment_id": payment.id,
+        "booking_id": payment.booking_id,
+        "amount": payment.amount,
+        "currency": payment.currency,
+        "status": payment.status,
+        "invoice_number": payment.invoice_number,
+        "message": "Payment completed successfully"
     }
 
 

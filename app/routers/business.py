@@ -389,17 +389,10 @@ def read_businesses(db: Session = Depends(get_db)):
             BusinessWorker.business_id == b.id
         ).count()
 
-        # Count real services for this business (via workers)
-        # Get all worker IDs for this business
-        worker_ids = db.query(BusinessWorker.worker_id).filter(
-            BusinessWorker.business_id == b.id
-        ).all()
-        worker_ids = [w[0] for w in worker_ids]
-
-        # Count services from these workers
+        # Count real services for this business (directly by business_id)
         services_count = db.query(Service).filter(
-            Service.barber_id.in_(worker_ids)
-        ).count() if worker_ids else 0
+            Service.business_id == b.id
+        ).count()
 
         result.append({
             "id": b.id,

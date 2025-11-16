@@ -39,15 +39,18 @@ def get_my_appointments(
 def get_current_user_route(
     current_user: UserModel = Depends(security.get_current_user)
 ):
+    full_name = None
+    if current_user.first_name or current_user.last_name:
+        full_name = f"{current_user.first_name or ''} {current_user.last_name or ''}".strip()
+
     return UserSchema(
         id=current_user.id,
         email=current_user.email,
-        first_name=current_user.first_name,
-        last_name=current_user.last_name,
+        full_name=full_name,
         phone_number=current_user.phone_number,
         birth_date=current_user.birth_date,
         address=current_user.address,
-        loyalty_points=current_user.loyalty_points,
+        loyalty_points=current_user.loyalty_points or 0,
         membership_tier=current_user.membership_tier,
         rating=current_user.rating,
         notification_settings=current_user.notification_settings,
@@ -96,6 +99,7 @@ def get_favorite_services(
                 barber = db.query(UserModel).filter(UserModel.id == service.barber_id).first()
                 result.append({
                     "id": service.id,
+                    "service_id": service.id,
                     "name": service.name,
                     "category": service.name,  # Show service name
                     "price": service.price,
@@ -117,6 +121,14 @@ def get_favorite_services(
                 })
 
     return result
+
+@router.get("/favorites/services")
+def get_favorite_services_alias(
+    current_user: UserModel = Depends(security.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get favorite services for the current user (alias endpoint)"""
+    return get_favorite_services(current_user=current_user, db=db)
 
 @router.post("/favorites/services/{service_id}")
 def add_favorite_service(
@@ -175,15 +187,19 @@ def update_current_user_route(
         setattr(current_user, field, value)
     db.commit()
     db.refresh(current_user)
+
+    full_name = None
+    if current_user.first_name or current_user.last_name:
+        full_name = f"{current_user.first_name or ''} {current_user.last_name or ''}".strip()
+
     return UserSchema(
         id=current_user.id,
         email=current_user.email,
-        first_name=current_user.first_name,
-        last_name=current_user.last_name,
+        full_name=full_name,
         phone_number=current_user.phone_number,
         birth_date=current_user.birth_date,
         address=current_user.address,
-        loyalty_points=current_user.loyalty_points,
+        loyalty_points=current_user.loyalty_points or 0,
         membership_tier=current_user.membership_tier,
         rating=current_user.rating,
         notification_settings=current_user.notification_settings,
