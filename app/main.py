@@ -52,7 +52,7 @@ app.include_router(booking.router, prefix="/api/v1/bookings", tags=["Bookings"])
 app.include_router(business.router, prefix="/api/v1/businesses", tags=["Business"])
 if services_router:
     print(f"Including services router: {services_router}")
-    app.include_router(services_router, prefix="/api/v1", tags=["Services"])
+    app.include_router(services_router, prefix="/api/v1/services", tags=["Services"])
 else:
     print("Services router is None, skipping inclusion")
 app.include_router(dashboard.router)
@@ -67,65 +67,3 @@ print("All routers included")
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the BarberPro API"}
-
-# -----------------------------
-# Startup event: create mock services
-# -----------------------------
-def create_mock_services():
-    db: Session = SessionLocal()
-    try:
-        # Create a default business if none exists
-        business = db.query(Business).first()
-        if not business:
-            business = Business(
-                name="Default Shop",
-                owner_name="Admin",
-                email="shop@test.com",
-                hashed_password=get_password_hash("123456"),
-                phone="1234567890",
-                address="Street 1",
-                city="City",
-                description="Demo business"
-            )
-            db.add(business)
-            db.commit()
-            db.refresh(business)
-
-        # Create a default barber if none exists
-        barber = db.query(User).filter(User.is_barber == True).first()
-        if not barber:
-            barber = User(
-                email="barber@test.com",
-                hashed_password=get_password_hash("password123"),
-                first_name="John",
-                last_name="Doe",
-                is_barber=True,
-                is_active=True
-            )
-            db.add(barber)
-            db.commit()
-            db.refresh(barber)
-
-        # Remove mock services and related bookings
-        mock_names = ["Haircut", "Shave", "Haircut + Shave"]
-        for name in mock_names:
-            service = db.query(Service).filter(Service.name == name).first()
-            if service:
-                # Delete related bookings first
-                bookings = db.query(Booking).filter(Booking.service_id == service.id).all()
-                for booking in bookings:
-                    db.delete(booking)
-                db.delete(service)
-
-        # Remove mock business
-        mock_business = db.query(Business).filter(Business.email == "shop@test.com").first()
-        if mock_business:
-            db.delete(mock_business)
-
-        db.commit()
-    finally:
-        db.close()
-
-# @app.on_event("startup")
-# def startup_event():
-#     create_mock_services()

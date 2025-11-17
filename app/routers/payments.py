@@ -9,20 +9,20 @@ from datetime import datetime, timedelta
 from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, func, Boolean, Text
 import os
 import secrets
+import requests
+import hashlib
+import time
+import stripe
 
 router = APIRouter(tags=["payments"])
 
-# Stripe API Key (set in environment)
+# Stripe API Configuration
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "sk_test_your_key_here")
 STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY", "pk_test_your_key_here")
+PLATFORM_COMMISSION_PERCENT = float(os.getenv("STRIPE_PLATFORM_COMMISSION_PERCENT", "10"))
 
-# 2Checkout Configuration
-TWOCHECKOUT_CONFIG = {
-    "merchant_code": os.getenv("TWOCHECKOUT_MERCHANT_CODE", "253177870927"),
-    "secret_key": os.getenv("TWOCHECKOUT_SECRET_KEY", "your_secret_key_here"),
-    "publishable_key": os.getenv("TWOCHECKOUT_PUBLISHABLE_KEY", "67134D0A-9FA7-454E-989E-D2D1F0EFF8DB"),
-    "sandbox": os.getenv("TWOCHECKOUT_SANDBOX", "true").lower() == "true"
-}
+# Initialize Stripe
+stripe.api_key = STRIPE_SECRET_KEY
 
 
 # Note: Payment and Invoice models are now in app/models/models.py to avoid duplication
@@ -132,22 +132,29 @@ def simulate_stripe_refund(payment_id: str, amount: float) -> dict:
 
 
 # ------------------------------
-# Create Payment
+# Stripe Connect Payment Endpoints
 # ------------------------------
-# ------------------------------
-# Create Payment Session (2Checkout)
-# ------------------------------
-@router.post("/create-session")
-async def create_payment_session(
-    session_data: PaymentSessionCreate,
+
+class StripeCheckoutCreate(BaseModel):
+    booking_id: int
+    success_url: Optional[str] = None
+    cancel_url: Optional[str] = None
+
+
+@router.post("/stripe/create-checkout-session")
+async def create_stripe_checkout_session(
+    checkout_data: StripeCheckoutCreate,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Create a 2Checkout payment session using API"""
+    """
+    Create a Stripe Checkout session for marketplace payment
+    Platform takes 10% commission, seller receives 90%
+    """
 
     # Verify booking exists and belongs to user
     booking = db.query(models.Booking).filter(
-        models.Booking.id == session_data.booking_id,
+        models.Booking.id == checkout_data.booking_id,
         models.Booking.user_id == current_user.id
     ).first()
 
@@ -163,44 +170,77 @@ async def create_payment_session(
     if not business:
         raise HTTPException(status_code=400, detail="Service has no associated business")
 
+    # Calculate commission split
+    total_amount = service.price
+    platform_commission = total_amount * (PLATFORM_COMMISSION_PERCENT / 100)
+    seller_amount = total_amount - platform_commission
+
     # Generate unique order reference
     order_ref = f"APONTI-{booking.id}-{secrets.token_hex(4).upper()}"
 
-    # Build full name from user
-    full_name = None
-    if current_user.first_name or current_user.last_name:
-        full_name = f"{current_user.first_name or ''} {current_user.last_name or ''}".strip()
+    # Set URLs
+    success_url = checkout_data.success_url or f"{os.getenv('FRONTEND_URL', 'http://localhost:3000')}/payment/success?booking_id={booking.id}"
+    cancel_url = checkout_data.cancel_url or f"{os.getenv('FRONTEND_URL', 'http://localhost:3000')}/payment?booking_id={booking.id}"
 
-    # Return inline checkout configuration
-    return {
-        "success": True,
-        "use_inline": True,  # Use inline checkout on your page
-        "merchant_code": TWOCHECKOUT_CONFIG["merchant_code"],
-        "publishable_key": TWOCHECKOUT_CONFIG["publishable_key"],
-        "order_reference": order_ref,
-        "booking_id": booking.id,
-        "amount": session_data.amount,
-        "currency": session_data.currency,
-        "product_name": f"{service.name} - {business.name}",
-        "customer_email": current_user.email,
-        "customer_name": full_name or current_user.email,
-        "sandbox": TWOCHECKOUT_CONFIG["sandbox"]
-    }
+    try:
+        # Create Stripe Checkout Session
+        # NOTE: For split payments, you would normally use Stripe Connect
+        # For now, we'll create a regular checkout and handle the split in webhook
+        session = stripe.checkout.Session.create(
+            payment_method_types=['card'],
+            line_items=[{
+                'price_data': {
+                    'currency': 'usd',
+                    'product_data': {
+                        'name': f"{service.name} - {business.name}",
+                        'description': f"Booking #{booking.id}",
+                    },
+                    'unit_amount': int(total_amount * 100),  # Convert to cents
+                },
+                'quantity': 1,
+            }],
+            mode='payment',
+            success_url=success_url,
+            cancel_url=cancel_url,
+            client_reference_id=str(booking.id),
+            metadata={
+                'booking_id': booking.id,
+                'order_reference': order_ref,
+                'business_id': business.id,
+                'platform_commission': platform_commission,
+                'seller_amount': seller_amount,
+            }
+        )
+
+        return {
+            "success": True,
+            "session_id": session.id,
+            "session_url": session.url,
+            "booking_id": booking.id,
+            "amount": total_amount,
+            "platform_commission": platform_commission,
+            "seller_amount": seller_amount,
+            "order_reference": order_ref
+        }
+
+    except stripe.error.StripeError as e:
+        raise HTTPException(status_code=400, detail=f"Stripe error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Payment session creation failed: {str(e)}")
 
 
-class PaymentComplete(BaseModel):
+class StripePaymentComplete(BaseModel):
+    session_id: str
     booking_id: int
-    order_reference: str
-    order_number: Optional[str] = None
 
 
-@router.post("/complete")
-async def complete_payment(
-    payment_data: PaymentComplete,
+@router.post("/stripe/complete")
+async def complete_stripe_payment(
+    payment_data: StripePaymentComplete,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Complete payment after 2Checkout redirect"""
+    """Complete payment after successful Stripe Checkout"""
 
     # Verify booking exists and belongs to user
     booking = db.query(models.Booking).filter(
@@ -224,45 +264,64 @@ async def complete_payment(
             "message": "Payment already recorded"
         }
 
-    # Get service and business info
-    service = booking.service
-    if not service or not service.business_id:
-        raise HTTPException(status_code=400, detail="Invalid booking service")
+    try:
+        # Retrieve Stripe session to verify payment
+        session = stripe.checkout.Session.retrieve(payment_data.session_id)
 
-    # Generate invoice number
-    invoice_number = generate_invoice_number()
+        if session.payment_status != 'paid':
+            raise HTTPException(status_code=400, detail="Payment not completed")
 
-    # Create payment record
-    payment = models.Payment(
-        booking_id=payment_data.booking_id,
-        user_id=current_user.id,
-        business_id=service.business_id,
-        amount=service.price,
-        payment_method="online",
-        status="completed",
-        stripe_payment_id=payment_data.order_number,  # Store 2Checkout order number
-        invoice_number=invoice_number,
-        notes=f"2Checkout Order Ref: {payment_data.order_reference}"
-    )
+        # Get service info
+        service = booking.service
+        if not service or not service.business_id:
+            raise HTTPException(status_code=400, detail="Invalid booking service")
 
-    db.add(payment)
-    db.commit()
-    db.refresh(payment)
+        # Calculate split
+        total_amount = service.price
+        platform_commission = total_amount * (PLATFORM_COMMISSION_PERCENT / 100)
+        seller_amount = total_amount - platform_commission
 
-    # Update booking status
-    booking.status = "confirmed"
-    db.commit()
+        # Generate invoice number
+        invoice_number = generate_invoice_number()
 
-    return {
-        "success": True,
-        "payment_id": payment.id,
-        "booking_id": payment.booking_id,
-        "amount": payment.amount,
-        "currency": payment.currency,
-        "status": payment.status,
-        "invoice_number": payment.invoice_number,
-        "message": "Payment completed successfully"
-    }
+        # Create payment record
+        payment = models.Payment(
+            booking_id=payment_data.booking_id,
+            user_id=current_user.id,
+            business_id=service.business_id,
+            amount=total_amount,
+            payment_method="online",
+            status="completed",
+            stripe_payment_id=session.payment_intent,
+            invoice_number=invoice_number,
+            notes=f"Stripe Checkout Session: {session.id}, Platform Commission: ${platform_commission:.2f}, Seller Amount: ${seller_amount:.2f}"
+        )
+
+        db.add(payment)
+        db.commit()
+        db.refresh(payment)
+
+        # Update booking status
+        booking.status = "confirmed"
+        db.commit()
+
+        return {
+            "success": True,
+            "payment_id": payment.id,
+            "booking_id": payment.booking_id,
+            "amount": payment.amount,
+            "currency": payment.currency,
+            "status": payment.status,
+            "invoice_number": payment.invoice_number,
+            "platform_commission": platform_commission,
+            "seller_amount": seller_amount,
+            "message": "Payment completed successfully"
+        }
+
+    except stripe.error.StripeError as e:
+        raise HTTPException(status_code=400, detail=f"Stripe error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Payment completion failed: {str(e)}")
 
 
 @router.post("/", response_model=PaymentResponse)
@@ -582,26 +641,13 @@ def get_business_revenue(
 # Add this endpoint before the @router.get("/config/stripe") endpoint
 
 # ------------------------------
-# Get Payment Configuration (for 2Checkout)
+# Get Payment Configuration (Stripe)
 # ------------------------------
 @router.get("/config")
 def get_payment_config():
     """Get payment configuration for frontend"""
-    # 2Checkout configuration
-    merchant_code = os.getenv("TWOCHECKOUT_MERCHANT_CODE", "253177870927")
-    publishable_key = os.getenv("TWOCHECKOUT_PUBLISHABLE_KEY", "67134D0A-9FA7-454E-989E-D2D1F0EFF8DB")
-    sandbox = os.getenv("TWOCHECKOUT_SANDBOX", "true").lower() == "true"
-    
     return {
-        "merchant_code": merchant_code,
-        "publishable_key": publishable_key,
-        "sandbox": sandbox,
-        "provider": "2checkout"
-    }
-
-@router.get("/config/stripe")
-def get_stripe_config():
-    """Get Stripe publishable key for frontend"""
-    return {
-        "publishable_key": STRIPE_PUBLISHABLE_KEY
+        "publishable_key": STRIPE_PUBLISHABLE_KEY,
+        "platform_commission_percent": PLATFORM_COMMISSION_PERCENT,
+        "provider": "stripe"
     }
