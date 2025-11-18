@@ -16,6 +16,8 @@ class User(Base):
     phone_number = Column(String, unique=True, nullable=True)
     birth_date = Column(Date, nullable=True)  # DateTime yerine Date
     address = Column(Text, nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
     loyalty_points = Column(Integer, default=0)
     membership_tier = Column(String, default="Bronze")
     rating = Column(Float, default=0.0)

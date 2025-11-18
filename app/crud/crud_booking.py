@@ -25,7 +25,7 @@ def create_booking(db: Session, booking_data: dict):
     # end_time hesapla ve booking_data dict'ine ekle
     end_time = start_time + timedelta(minutes=service.duration)
     booking_data["end_time"] = end_time
-    booking_data["status"] = "confirmed"
+    booking_data["status"] = "pending"  # Payment tamamlanınca "confirmed" olacak
 
     # Aynı zaman diliminde başka randevu var mı kontrol et
     existing_booking = db.query(Booking).filter(

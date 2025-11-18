@@ -50,6 +50,8 @@ def get_current_user_route(
         phone_number=current_user.phone_number,
         birth_date=current_user.birth_date,
         address=current_user.address,
+        latitude=current_user.latitude,
+        longitude=current_user.longitude,
         loyalty_points=current_user.loyalty_points or 0,
         membership_tier=current_user.membership_tier,
         rating=current_user.rating,
