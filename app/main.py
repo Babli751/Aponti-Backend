@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.database import engine, SessionLocal
 from app.models import models
 from app.models.models import Service, Business, User, Booking
-from app.routers import auth, user, barber, booking, business, dashboard, upload, workers, slots, reviews, notifications, payments
+from app.routers import auth, user, barber, booking, business, dashboard, upload, workers, slots, reviews, notifications, payments, analytics
 try:
     from app.routers.services import router as services_router
     print("Services router imported successfully")
@@ -62,6 +62,7 @@ app.include_router(slots.router, prefix="/api/v1/slots", tags=["Slots"])
 app.include_router(reviews.router, prefix="/api/v1/reviews", tags=["Reviews"])
 app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"])
 app.include_router(payments.router, prefix="/api/v1/payments", tags=["Payments"])
+app.include_router(analytics.router, prefix="/api/v1/analytics", tags=["Analytics"])
 print("All routers included")
 
 @app.get("/")

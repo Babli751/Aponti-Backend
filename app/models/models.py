@@ -131,6 +131,7 @@ class Business(Base):
     longitude = Column(Float, nullable=True, index=True)  # GPS coordinates
     avatar_url = Column(String, nullable=True)  # Business profile photo
     cover_photo_url = Column(String, nullable=True)  # Business cover photo
+    working_hours_json = Column(Text, nullable=True)  # JSON string for salon working hours
 
     services = relationship("Service", back_populates="business")
     business_workers = relationship("BusinessWorker", back_populates="business")
@@ -174,3 +175,77 @@ class Payment(Base):
 
     booking = relationship("Booking")
     user = relationship("User")
+
+class Review(Base):
+    __tablename__ = "reviews"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    business_id = Column(Integer, ForeignKey("businesses.id"), nullable=True)
+    worker_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    booking_id = Column(Integer, ForeignKey("bookings.id"), nullable=True)
+    rating = Column(Float, nullable=False)  # Changed to Float to match DB
+    comment = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    business = relationship("Business")
+    user = relationship("User", foreign_keys=[user_id])
+    worker = relationship("User", foreign_keys=[worker_id])
+    booking = relationship("Booking")
+
+
+# ==================== ANALYTICS MODELS ====================
+
+class VisitorSession(Base):
+    """Track unique visitors and their sessions"""
+    __tablename__ = "visitor_sessions"
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String, unique=True, index=True, nullable=False)  # UUID for session
+    visitor_id = Column(String, index=True, nullable=False)  # Fingerprint/cookie ID for returning visitor detection
+    ip_address = Column(String, nullable=True)
+    country = Column(String, nullable=True)
+    city = Column(String, nullable=True)
+    user_agent = Column(Text, nullable=True)
+    device_type = Column(String, nullable=True)  # mobile, tablet, desktop
+    browser = Column(String, nullable=True)
+    os = Column(String, nullable=True)
+    referrer = Column(String, nullable=True)  # Where they came from
+    landing_page = Column(String, nullable=True)  # First page they visited
+    is_returning = Column(Boolean, default=False)  # Returning visitor?
+    created_at = Column(DateTime, server_default=func.now())
+    last_activity = Column(DateTime, server_default=func.now())
+
+
+class PageView(Base):
+    """Track individual page views"""
+    __tablename__ = "page_views"
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String, ForeignKey("visitor_sessions.session_id"), nullable=False, index=True)
+    page_path = Column(String, nullable=False, index=True)  # /home, /business/123, etc
+    page_title = Column(String, nullable=True)
+    time_on_page = Column(Integer, nullable=True)  # Seconds spent on page
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class ClickEvent(Base):
+    """Track clicks on important elements"""
+    __tablename__ = "click_events"
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String, ForeignKey("visitor_sessions.session_id"), nullable=False, index=True)
+    element_id = Column(String, nullable=True)  # Button ID or element identifier
+    element_text = Column(String, nullable=True)  # "Book Now", "Try Business", etc
+    element_type = Column(String, nullable=True)  # button, link, card
+    page_path = Column(String, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class AdminUser(Base):
+    """Admin users for the admin panel"""
+    __tablename__ = "admin_users"
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, nullable=False)
+    email = Column(String, unique=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    is_active = Column(Boolean, default=True)
+    is_superadmin = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+    last_login = Column(DateTime, nullable=True)

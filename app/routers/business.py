@@ -5,7 +5,8 @@ from datetime import timedelta
 from pydantic import BaseModel
 from app.core.database import get_db
 from app.models import models
-from app.models.models import Business, Service, Booking as BookingModel, User, BusinessWorker
+from app.models.models import Business, Service, Booking as BookingModel, User, BusinessWorker, WorkingHours
+from datetime import time
 from app.models.schemas import BusinessCreateSchema
 from typing import List, Optional
 from app.core.security import verify_password, create_access_token, get_current_business
@@ -185,7 +186,7 @@ def test_business_endpoint():
     return {"message": "Business test endpoint working"}
 
 @router.get("/profile", response_model=None)
-def get_business_profile(current_business: Business = Depends(get_current_business), db: Session = Depends(get_db)):
+async def get_business_profile(current_business: Business = Depends(get_current_business), db: Session = Depends(get_db)):
     # Get business services
     services = db.query(Service).filter(Service.business_id == current_business.id).all()
 
@@ -217,6 +218,16 @@ def get_business_profile(current_business: Business = Depends(get_current_busine
         if bw.worker
     ]
 
+    import json
+
+    # Parse working hours from JSON
+    working_hours = None
+    if current_business.working_hours_json:
+        try:
+            working_hours = json.loads(current_business.working_hours_json)
+        except:
+            working_hours = None
+
     return {
         "id": current_business.id,
         "name": current_business.name,
@@ -234,6 +245,7 @@ def get_business_profile(current_business: Business = Depends(get_current_busine
         "totalBookings": total_bookings,
         "monthlyRevenue": monthly_revenue,
         "workers": workers,
+        "workingHours": working_hours,
         "services": [
             {
                 "id": s.id,
@@ -244,6 +256,61 @@ def get_business_profile(current_business: Business = Depends(get_current_busine
             }
             for s in services
         ]
+    }
+
+
+# ------------------------------
+# Update Business Profile
+# ------------------------------
+class BusinessUpdateSchema(BaseModel):
+    name: str = None
+    owner_name: str = None
+    phone: str = None
+    address: str = None
+    city: str = None
+    description: str = None
+    working_hours: dict = None
+
+@router.put("/profile", response_model=None)
+async def update_business_profile(
+    update_data: BusinessUpdateSchema,
+    current_business: Business = Depends(get_current_business),
+    db: Session = Depends(get_db)
+):
+    import json
+
+    # Update only provided fields
+    if update_data.name is not None:
+        current_business.name = update_data.name
+    if update_data.owner_name is not None:
+        current_business.owner_name = update_data.owner_name
+    if update_data.phone is not None:
+        current_business.phone = update_data.phone
+    if update_data.address is not None:
+        current_business.address = update_data.address
+    if update_data.city is not None:
+        current_business.city = update_data.city
+    if update_data.description is not None:
+        current_business.description = update_data.description
+    if update_data.working_hours is not None:
+        current_business.working_hours_json = json.dumps(update_data.working_hours)
+
+    db.commit()
+    db.refresh(current_business)
+
+    return {
+        "success": True,
+        "message": "Profile updated successfully",
+        "business": {
+            "id": current_business.id,
+            "name": current_business.name,
+            "owner_name": current_business.owner_name,
+            "email": current_business.email,
+            "phone": current_business.phone,
+            "address": current_business.address,
+            "city": current_business.city,
+            "description": current_business.description
+        }
     }
 
 
@@ -814,3 +881,108 @@ async def upload_business_cover_photo(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to upload cover photo: {str(e)}")
+
+
+# ------------------------------
+# Worker Working Hours Management
+# ------------------------------
+class WorkerHourSchema(BaseModel):
+    day_of_week: int  # 0=Monday, 6=Sunday
+    start_time: str   # "09:00"
+    end_time: str     # "17:00"
+    is_working: bool = True
+
+class WorkerHoursUpdateSchema(BaseModel):
+    worker_id: int
+    hours: List[WorkerHourSchema]
+
+@router.get("/workers/{worker_id}/hours")
+async def get_worker_hours(
+    worker_id: int,
+    current_business: Business = Depends(get_current_business),
+    db: Session = Depends(get_db)
+):
+    # Verify worker belongs to this business
+    business_worker = db.query(BusinessWorker).filter(
+        BusinessWorker.business_id == current_business.id,
+        BusinessWorker.worker_id == worker_id
+    ).first()
+
+    if not business_worker:
+        raise HTTPException(status_code=404, detail="Worker not found in this business")
+
+    # Get worker's working hours
+    hours = db.query(WorkingHours).filter(
+        WorkingHours.barber_id == worker_id
+    ).order_by(WorkingHours.day_of_week).all()
+
+    return [
+        {
+            "id": h.id,
+            "day_of_week": h.day_of_week,
+            "start_time": h.start_time.strftime("%H:%M") if h.start_time else "09:00",
+            "end_time": h.end_time.strftime("%H:%M") if h.end_time else "17:00",
+            "is_working": h.is_working
+        }
+        for h in hours
+    ]
+
+@router.put("/workers/{worker_id}/hours")
+async def update_worker_hours(
+    worker_id: int,
+    hours_data: List[WorkerHourSchema],
+    current_business: Business = Depends(get_current_business),
+    db: Session = Depends(get_db)
+):
+    # Verify worker belongs to this business
+    business_worker = db.query(BusinessWorker).filter(
+        BusinessWorker.business_id == current_business.id,
+        BusinessWorker.worker_id == worker_id
+    ).first()
+
+    if not business_worker:
+        raise HTTPException(status_code=404, detail="Worker not found in this business")
+
+    # Delete existing hours for this worker
+    db.query(WorkingHours).filter(WorkingHours.barber_id == worker_id).delete()
+
+    # Add new hours
+    for hour in hours_data:
+        # Parse time strings
+        start_parts = hour.start_time.split(":")
+        end_parts = hour.end_time.split(":")
+
+        new_hour = WorkingHours(
+            barber_id=worker_id,
+            day_of_week=hour.day_of_week,
+            start_time=time(int(start_parts[0]), int(start_parts[1])),
+            end_time=time(int(end_parts[0]), int(end_parts[1])),
+            is_working=hour.is_working
+        )
+        db.add(new_hour)
+
+    db.commit()
+
+    return {"success": True, "message": "Worker hours updated successfully"}
+
+
+# Public endpoint to get worker hours (for booking)
+@router.get("/public/workers/{worker_id}/hours")
+def get_worker_hours_public(
+    worker_id: int,
+    db: Session = Depends(get_db)
+):
+    # Get worker's working hours
+    hours = db.query(WorkingHours).filter(
+        WorkingHours.barber_id == worker_id
+    ).order_by(WorkingHours.day_of_week).all()
+
+    return [
+        {
+            "day_of_week": h.day_of_week,
+            "start_time": h.start_time.strftime("%H:%M") if h.start_time else "09:00",
+            "end_time": h.end_time.strftime("%H:%M") if h.end_time else "17:00",
+            "is_working": h.is_working
+        }
+        for h in hours
+    ]
