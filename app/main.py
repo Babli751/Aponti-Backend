@@ -36,7 +36,9 @@ app.add_middleware(
         "http://localhost:3001",
         "http://206.189.57.55",      # Apache frontend (port 80)
         "http://206.189.57.55:8000", # Direct backend access (for testing)
-        "http://206.189.57.55:8001"  # Backend port (for Apache proxy)
+        "http://206.189.57.55:8001", # Backend port (for Apache proxy)
+        "https://aponti.org",         # HTTPS domain
+        "https://www.aponti.org"      # HTTPS www subdomain
     ],
     allow_credentials=True,
     allow_methods=["*"],

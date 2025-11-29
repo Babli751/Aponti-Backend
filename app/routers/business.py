@@ -447,41 +447,50 @@ def get_business_activity(current_business: Business = Depends(get_current_busin
 # ------------------------------
 @router.get("/")
 def read_businesses(db: Session = Depends(get_db)):
-    businesses = db.query(models.Business).all()
+    try:
+        businesses = db.query(models.Business).all()
 
-    result = []
-    for b in businesses:
-        # Count real workers for this business
-        workers_count = db.query(BusinessWorker).filter(
-            BusinessWorker.business_id == b.id
-        ).count()
+        result = []
+        for b in businesses:
+            try:
+                # Count real workers for this business
+                workers_count = db.query(BusinessWorker).filter(
+                    BusinessWorker.business_id == b.id
+                ).count()
 
-        # Count real services for this business (directly by business_id)
-        services_count = db.query(Service).filter(
-            Service.business_id == b.id
-        ).count()
+                # Count real services for this business (directly by business_id)
+                services_count = db.query(Service).filter(
+                    Service.business_id == b.id
+                ).count()
 
-        result.append({
-            "id": b.id,
-            "business_name": b.name,
-            "name": b.name,
-            "owner_name": b.owner_name,
-            "email": b.email,
-            "phone": b.phone,
-            "address": b.address,
-            "city": b.city,
-            "business_type": b.category or "barber",
-            "category": b.category or "barber",
-            "description": b.description or "Professional services",
-            "latitude": b.latitude or (41.0082 + (b.id * 0.01)),
-            "longitude": b.longitude or (28.9784 + (b.id * 0.01)),
-            "avatar_url": getattr(b, 'avatar_url', None),
-            "cover_photo_url": getattr(b, 'cover_photo_url', None),
-            "workers_count": workers_count,
-            "services_count": services_count
-        })
+                result.append({
+                    "id": b.id,
+                    "business_name": b.name,
+                    "name": b.name,
+                    "owner_name": b.owner_name,
+                    "email": b.email,
+                    "phone": b.phone or "",
+                    "address": b.address or "",
+                    "city": b.city or "",
+                    "country": getattr(b, 'country', ""),
+                    "business_type": b.category or "barber",
+                    "category": b.category or "barber",
+                    "description": b.description or "Professional services",
+                    "latitude": b.latitude or (41.0082 + (b.id * 0.01)),
+                    "longitude": b.longitude or (28.9784 + (b.id * 0.01)),
+                    "avatar_url": getattr(b, 'avatar_url', None),
+                    "cover_photo_url": getattr(b, 'cover_photo_url', None),
+                    "workers_count": workers_count,
+                    "services_count": services_count
+                })
+            except Exception as e:
+                print(f"Error processing business {b.id}: {e}")
+                continue
 
-    return result
+        return result
+    except Exception as e:
+        print(f"Error in read_businesses: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching businesses: {str(e)}")
 
 @router.get("/list")
 def get_businesses_list(db: Session = Depends(get_db)):

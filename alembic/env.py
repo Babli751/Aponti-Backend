@@ -23,7 +23,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # DATABASE_URL environment variable ile okunacak
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/booksy")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://aponti_user:aponti_pass@localhost:5432/barber_booking")
 config.set_main_option("sqlalchemy.url", DATABASE_URL)
 
 def run_migrations_offline() -> None:
