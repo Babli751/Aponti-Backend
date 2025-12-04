@@ -8,6 +8,21 @@ from app.core import security
 from typing import List
 from datetime import datetime
 
+# Import get_full_image_url helper
+import os
+
+def get_full_image_url(relative_url):
+    """Convert relative image URL to full URL"""
+    if not relative_url:
+        return None
+    if relative_url.startswith('http'):
+        return relative_url
+    # Get base URL from environment or use production URL
+    base_url = os.getenv('BASE_URL', 'https://aponti.org')
+    # Remove leading slash if present to avoid double slashes
+    relative_url = relative_url.lstrip('/')
+    return f"{base_url}/{relative_url}"
+
 router = APIRouter(
     tags=["users"]
 )
@@ -25,7 +40,10 @@ async def upload_avatar(
         buffer.write(await file.read())
     current_user.avatar_url = file_location
     db.commit()
-    return {"avatar_url": file_location}
+
+    # Return full URL to frontend
+    full_url = get_full_image_url(file_location)
+    return {"avatar_url": full_url}
 
 @router.get("/appointments/my", response_model=List[BookingSchema])
 def get_my_appointments(
@@ -43,9 +61,16 @@ def get_current_user_route(
     if current_user.first_name or current_user.last_name:
         full_name = f"{current_user.first_name or ''} {current_user.last_name or ''}".strip()
 
+    avatar_url = get_full_image_url(current_user.avatar_url)
+    print(f"👤 GET /users/me - User: {current_user.email}")
+    print(f"   Avatar DB: {current_user.avatar_url}")
+    print(f"   Avatar Full URL: {avatar_url}")
+
     return UserSchema(
         id=current_user.id,
         email=current_user.email,
+        first_name=current_user.first_name,
+        last_name=current_user.last_name,
         full_name=full_name,
         phone_number=current_user.phone_number,
         birth_date=current_user.birth_date,
@@ -56,7 +81,7 @@ def get_current_user_route(
         membership_tier=current_user.membership_tier,
         rating=current_user.rating,
         notification_settings=current_user.notification_settings,
-        avatar_url=current_user.avatar_url,
+        avatar_url=avatar_url,
         is_barber=current_user.is_barber,
         is_active=current_user.is_active,
         created_at=current_user.created_at
