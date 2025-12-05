@@ -77,12 +77,20 @@ def create_business(business_in: BusinessCreateSchema, db: Session = Depends(get
     if existing_business:
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    # Geocode address to get GPS coordinates
-    latitude, longitude = None, None
-    if business_in.address and business_in.city and business_in.country:
+    # Use frontend-provided coordinates if available, otherwise geocode address
+    latitude = business_in.latitude
+    longitude = business_in.longitude
+
+    print(f"🔍 Received from frontend - latitude: {latitude}, longitude: {longitude}")
+
+    if latitude and longitude:
+        print(f"✅ Using frontend coordinates: ({latitude}, {longitude})")
+    elif business_in.address and business_in.city and business_in.country:
+        # Fallback to backend geocoding if frontend didn't provide coordinates
+        print(f"⚠️ Frontend coordinates not provided, trying backend geocoding...")
         latitude, longitude = geocode_address(business_in.address, business_in.city, business_in.country)
         if latitude and longitude:
-            print(f"✅ Geocoded: {business_in.address} → ({latitude}, {longitude})")
+            print(f"✅ Backend geocoded: {business_in.address} → ({latitude}, {longitude})")
         else:
             print(f"⚠️ Could not geocode address: {business_in.address}")
 
@@ -228,6 +236,14 @@ async def get_business_profile(current_business: Business = Depends(get_current_
         except:
             working_hours = None
 
+    # Parse gallery photos
+    gallery_photos = []
+    if current_business.gallery_photos:
+        try:
+            gallery_photos = json.loads(current_business.gallery_photos)
+        except:
+            gallery_photos = []
+
     return {
         "id": current_business.id,
         "name": current_business.name,
@@ -240,6 +256,7 @@ async def get_business_profile(current_business: Business = Depends(get_current_
         "description": current_business.description,
         "avatar": current_business.avatar_url or "",
         "coverPhoto": current_business.cover_photo_url or "",
+        "galleryPhotos": gallery_photos,
         "rating": rating,
         "reviewCount": review_count,
         "totalBookings": total_bookings,
@@ -495,6 +512,9 @@ def read_businesses(db: Session = Depends(get_db)):
 @router.get("/list")
 def get_businesses_list(db: Session = Depends(get_db)):
     businesses = db.query(models.Business).all()
+    print(f"🔍 Database query returned {len(businesses)} businesses")
+    for b in businesses:
+        print(f"   - Business: {b.name} (ID: {b.id})")
     return [{
         "id": b.id,
         "business_name": b.name,
@@ -608,6 +628,15 @@ def get_business_by_id(business_id: int, db: Session = Depends(get_db)):
     if not business:
         raise HTTPException(status_code=404, detail="Business not found")
 
+    # Parse gallery photos
+    import json
+    gallery_photos = []
+    if business.gallery_photos:
+        try:
+            gallery_photos = json.loads(business.gallery_photos)
+        except:
+            gallery_photos = []
+
     return {
         "id": business.id,
         "business_name": business.name,
@@ -617,8 +646,9 @@ def get_business_by_id(business_id: int, db: Session = Depends(get_db)):
         "address": business.address,
         "city": business.city,
         "description": business.description,
-        "avatar": None,
-        "cover_photo": None,
+        "avatar_url": business.avatar_url,
+        "cover_photo_url": business.cover_photo_url,
+        "gallery_photos": gallery_photos,
         "facebook": None,
         "instagram": None,
         "category": business.category or "barber"
@@ -890,6 +920,82 @@ async def upload_business_cover_photo(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to upload cover photo: {str(e)}")
+
+@router.post("/upload-gallery-photo")
+async def upload_gallery_photo(
+    file: UploadFile = File(...),
+    current_business: Business = Depends(get_current_business),
+    db: Session = Depends(get_db)
+):
+    """Upload a photo to business gallery"""
+    try:
+        upload_dir = "uploads/business_gallery"
+        os.makedirs(upload_dir, exist_ok=True)
+
+        file_extension = file.filename.split('.')[-1]
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"business_{current_business.id}_gallery_{timestamp}.{file_extension}"
+        file_path = os.path.join(upload_dir, filename)
+
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        photo_url = f"/uploads/business_gallery/{filename}"
+
+        # Get current gallery photos
+        import json
+        current_photos = []
+        if current_business.gallery_photos:
+            current_photos = json.loads(current_business.gallery_photos)
+
+        # Add new photo
+        current_photos.append(photo_url)
+
+        # Update database
+        current_business.gallery_photos = json.dumps(current_photos)
+        db.commit()
+
+        return {
+            "success": True,
+            "photo_url": photo_url,
+            "gallery_photos": current_photos
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to upload gallery photo: {str(e)}")
+
+@router.delete("/gallery-photo")
+async def delete_gallery_photo(
+    photo_url: str,
+    current_business: Business = Depends(get_current_business),
+    db: Session = Depends(get_db)
+):
+    """Delete a photo from business gallery"""
+    try:
+        import json
+        if not current_business.gallery_photos:
+            return {"success": True, "gallery_photos": []}
+
+        current_photos = json.loads(current_business.gallery_photos)
+
+        # Remove the photo from list
+        if photo_url in current_photos:
+            current_photos.remove(photo_url)
+
+            # Delete file
+            file_path = photo_url.lstrip('/')
+            if os.path.exists(file_path):
+                os.remove(file_path)
+
+        # Update database
+        current_business.gallery_photos = json.dumps(current_photos)
+        db.commit()
+
+        return {
+            "success": True,
+            "gallery_photos": current_photos
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete gallery photo: {str(e)}")
 
 
 # ------------------------------

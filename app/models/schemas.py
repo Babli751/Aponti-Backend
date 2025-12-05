@@ -151,6 +151,8 @@ class LoginRequest(BaseModel):
 
 # -------------------- USER UPDATE --------------------
 class UserUpdate(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     full_name: Optional[str] = None
     phone_number: Optional[str] = None
     password: Optional[str] = None
@@ -159,6 +161,7 @@ class UserUpdate(BaseModel):
     barber_bio: Optional[str] = None
     barber_shop_name: Optional[str] = None
     barber_shop_address: Optional[str] = None
+    avatar_url: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -183,6 +186,8 @@ class UserStats(BaseModel):
 class UserSchema(BaseModel):
     id: int
     email: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     full_name: Optional[str] = None
     phone_number: Optional[str] = None
     birth_date: Optional[date] = None
@@ -238,6 +243,8 @@ class BusinessCreateSchema(BaseModel):
     country: Optional[str] = None
     category: Optional[str] = None
     description: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     services: List[ServiceCreateForBusiness] = []
 
 

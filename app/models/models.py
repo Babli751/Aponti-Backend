@@ -131,6 +131,7 @@ class Business(Base):
     longitude = Column(Float, nullable=True, index=True)  # GPS coordinates
     avatar_url = Column(String, nullable=True)  # Business profile photo
     cover_photo_url = Column(String, nullable=True)  # Business cover photo
+    gallery_photos = Column(Text, nullable=True)  # JSON array of gallery photo URLs
     working_hours_json = Column(Text, nullable=True)  # JSON string for salon working hours
 
     services = relationship("Service", back_populates="business")

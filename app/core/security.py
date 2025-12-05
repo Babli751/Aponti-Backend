@@ -1,16 +1,13 @@
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt
 from fastapi.security import OAuth2PasswordBearer
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.models import User, Business
 from app.core.database import get_db
-
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # OAuth2 scheme configuration
 # User login üçün token URL
@@ -21,11 +18,24 @@ oauth2_scheme_business = OAuth2PasswordBearer(tokenUrl="/api/v1/businesses/login
 # ----------------- Password Hashing -----------------
 def get_password_hash(password: str) -> str:
     """Hash parol"""
-    return pwd_context.hash(password)
+    # Convert string to bytes and hash it
+    password_bytes = password.encode('utf-8')
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password_bytes, salt)
+    # Return as string for database storage
+    return hashed.decode('utf-8')
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Parolu doğrula"""
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        # Convert both to bytes
+        password_bytes = plain_password.encode('utf-8')
+        hashed_bytes = hashed_password.encode('utf-8')
+        # Verify password
+        return bcrypt.checkpw(password_bytes, hashed_bytes)
+    except Exception as e:
+        print(f"❌ Password verification error: {e}")
+        return False
 
 # ----------------- JWT Token -----------------
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
