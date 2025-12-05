@@ -47,3 +47,6 @@ env/
 # Logs
 *.log
 logs/
+
+# Uploads
+uploads/
