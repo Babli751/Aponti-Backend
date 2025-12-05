@@ -15,10 +15,18 @@ def get_full_image_url(relative_url):
     """Convert relative image URL to full URL"""
     if not relative_url:
         return None
-    if relative_url.startswith('http'):
-        return relative_url
+
     # Get base URL from environment or use production URL
     base_url = os.getenv('BASE_URL', 'https://aponti.org')
+
+    # If it's already a full URL with localhost, replace with production URL
+    if relative_url.startswith('http://localhost'):
+        relative_url = relative_url.replace('http://localhost:8000/', '')
+        relative_url = relative_url.replace('http://localhost/', '')
+    # If it's already a production URL, return as is
+    elif relative_url.startswith('http'):
+        return relative_url
+
     # Remove leading slash if present to avoid double slashes
     relative_url = relative_url.lstrip('/')
     return f"{base_url}/{relative_url}"
