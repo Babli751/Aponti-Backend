@@ -12,24 +12,23 @@ from datetime import datetime
 import os
 
 def get_full_image_url(relative_url):
-    """Convert relative image URL to full URL"""
+    """Convert relative image URL to path that frontend can use"""
     if not relative_url:
         return None
 
-    # Get base URL from environment or use production URL
-    base_url = os.getenv('BASE_URL', 'https://aponti.org')
-
-    # If it's already a full URL with localhost, replace with production URL
+    # If it's already a full URL with localhost, convert to relative path
     if relative_url.startswith('http://localhost'):
         relative_url = relative_url.replace('http://localhost:8000/', '')
         relative_url = relative_url.replace('http://localhost/', '')
-    # If it's already a production URL, return as is
+    # If it's already a full URL (production), return as is
     elif relative_url.startswith('http'):
         return relative_url
 
-    # Remove leading slash if present to avoid double slashes
+    # Remove leading slash and add it back to ensure consistency
     relative_url = relative_url.lstrip('/')
-    return f"{base_url}/{relative_url}"
+
+    # Return absolute path that works with frontend proxy
+    return f"/{relative_url}"
 
 router = APIRouter(
     tags=["users"]

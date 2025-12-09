@@ -83,6 +83,10 @@ class Booking(Base):
     # Yeni eklenen alan
     notes = Column(Text, nullable=True)
 
+    # Timestamps
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
     user = relationship("User", foreign_keys=[user_id])
     barber = relationship("User", foreign_keys=[barber_id])
     service = relationship("Service")
@@ -110,6 +114,10 @@ class BusinessWorker(Base):
     status = Column(String, default="active")  # active, invited, suspended
     invited_at = Column(DateTime, server_default=func.now())
     joined_at = Column(DateTime, nullable=True)
+
+    # Working hours for this worker at this business
+    work_start_time = Column(Time, default=time(9, 0))  # Default 09:00
+    work_end_time = Column(Time, default=time(21, 0))   # Default 21:00 (9 PM)
 
     business = relationship("Business", back_populates="business_workers")
     worker = relationship("User", back_populates="worker_businesses")

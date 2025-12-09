@@ -9,7 +9,11 @@ def get_bookings(db: Session, barber_id: int, skip: int = 0, limit: int = 100):
     return db.query(Booking).filter(Booking.barber_id == barber_id).offset(skip).limit(limit).all()
 
 def get_customer_bookings(db: Session, customer_email: str):
-    return db.query(Booking).filter(Booking.customer_email == customer_email).all()
+    # Only return confirmed (paid) bookings, not pending ones
+    return db.query(Booking).filter(
+        Booking.customer_email == customer_email,
+        Booking.status == "confirmed"
+    ).all()
 
 def create_booking(db: Session, booking_data: dict):
     # Servis süresini al
