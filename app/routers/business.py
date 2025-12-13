@@ -466,6 +466,7 @@ def get_business_activity(current_business: Business = Depends(get_current_busin
 def read_businesses(db: Session = Depends(get_db)):
     try:
         businesses = db.query(models.Business).all()
+        print(f"🔍 GET / businesses - Found {len(businesses)} businesses in database")
 
         result = []
         for b in businesses:
